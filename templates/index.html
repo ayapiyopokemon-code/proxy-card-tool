@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>プロキシカード作成ツール</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Meiryo', sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    header {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      color: #fff;
+      padding: 18px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    header h1 { font-size: 1.3rem; font-weight: 700; }
+    header p { font-size: 0.8rem; opacity: 0.7; margin-top: 2px; }
+
+    .main {
+      max-width: 900px;
+      margin: 28px auto;
+      padding: 0 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px 24px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    .card h2 {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #444;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .card h2::before {
+      content: '';
+      display: inline-block;
+      width: 4px;
+      height: 16px;
+      background: #0f3460;
+      border-radius: 2px;
+    }
+
+    /* 設定行 */
+    .settings-row {
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    .setting-group { display: flex; flex-direction: column; gap: 6px; }
+    .setting-group label { font-size: 0.8rem; color: #666; }
+    .radio-group { display: flex; gap: 8px; }
+    .radio-btn {
+      padding: 7px 18px;
+      border: 2px solid #ddd;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      background: #fff;
+      transition: all 0.15s;
+      user-select: none;
+    }
+    .radio-btn:hover { border-color: #0f3460; }
+    .radio-btn.active {
+      border-color: #0f3460;
+      background: #0f3460;
+      color: #fff;
+    }
+
+    /* 情報バナー */
+    .info-banner {
+      background: #eef4ff;
+      border: 1px solid #c5d8ff;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 0.82rem;
+      color: #3060a0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .info-banner span { font-size: 1.2rem; }
+
+    /* 追加エリア */
+    .add-area {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .input-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+    }
+    .input-row input[type="text"] {
+      flex: 1;
+      min-width: 200px;
+      padding: 9px 13px;
+      border: 1.5px solid #ddd;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .input-row input[type="text"]:focus { border-color: #0f3460; }
+    .input-row input[type="number"] {
+      width: 68px;
+      padding: 9px 10px;
+      border: 1.5px solid #ddd;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      text-align: center;
+      outline: none;
+    }
+    .input-row label { font-size: 0.8rem; color: #666; white-space: nowrap; }
+
+    .btn {
+      padding: 9px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-primary { background: #0f3460; color: #fff; }
+    .btn-primary:hover { background: #1a4a80; }
+    .btn-secondary { background: #f0f2f5; color: #444; border: 1.5px solid #ddd; }
+    .btn-secondary:hover { background: #e4e7ec; }
+    .btn-danger { background: #fff0f0; color: #c0392b; border: 1.5px solid #f5c6c6; }
+    .btn-danger:hover { background: #fde0e0; }
+    .btn-success {
+      background: linear-gradient(135deg, #0f3460, #533483);
+      color: #fff;
+      padding: 13px 32px;
+      font-size: 1rem;
+      border-radius: 10px;
+      width: 100%;
+    }
+    .btn-success:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(15,52,96,0.3); }
+    .btn-success:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    /* ドラッグ&ドロップ */
+    .drop-zone {
+      border: 2px dashed #c5cdd8;
+      border-radius: 10px;
+      padding: 20px;
+      text-align: center;
+      color: #888;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.15s;
+      background: #fafbfc;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: #0f3460;
+      background: #eef4ff;
+      color: #0f3460;
+    }
+    .drop-zone span { font-size: 1.8rem; display: block; margin-bottom: 4px; }
+
+    /* カードリスト */
+    #card-list { display: flex; flex-direction: column; gap: 8px; }
+    .card-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border: 1.5px solid #eee;
+      border-radius: 10px;
+      background: #fafbfc;
+      transition: all 0.1s;
+    }
+    .card-item:hover { border-color: #ddd; background: #f5f7fa; }
+    .card-thumb {
+      width: 38px;
+      height: 53px;
+      border-radius: 4px;
+      border: 1px solid #eee;
+      background: #eee;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      position: relative;
+    }
+    .card-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .card-thumb .thumb-placeholder {
+      font-size: 1.2rem;
+      color: #bbb;
+    }
+    .card-thumb .thumb-loading {
+      width: 14px;
+      height: 14px;
+      border: 2px solid #ddd;
+      border-top-color: #888;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    .card-item .card-src {
+      flex: 1;
+      font-size: 0.78rem;
+      color: #666;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .card-item .qty-control {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .qty-btn {
+      width: 24px;
+      height: 24px;
+      border: 1.5px solid #ddd;
+      border-radius: 50%;
+      background: #fff;
+      cursor: pointer;
+      font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: #555;
+    }
+    .qty-btn:hover { background: #f0f2f5; }
+    .qty-num {
+      width: 28px;
+      text-align: center;
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: #1a1a2e;
+    }
+    .remove-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #bbb;
+      font-size: 1.1rem;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+    .remove-btn:hover { color: #c0392b; background: #fff0f0; }
+
+    .empty-msg {
+      text-align: center;
+      padding: 28px;
+      color: #aaa;
+      font-size: 0.88rem;
+    }
+
+    /* 集計バー */
+    .summary-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: #f0f2f5;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      color: #555;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .summary-bar strong { color: #1a1a2e; }
+    .sheet-count {
+      background: #0f3460;
+      color: #fff;
+      padding: 3px 12px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+
+    .clear-btn {
+      font-size: 0.78rem;
+      color: #999;
+      background: none;
+      border: none;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+    .clear-btn:hover { color: #c0392b; }
+
+    /* ローディング */
+    .loading { display: none; align-items: center; gap: 10px; justify-content: center; }
+    .loading.show { display: flex; }
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 3px solid #ccc;
+      border-top-color: #0f3460;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error-msg {
+      color: #c0392b;
+      font-size: 0.82rem;
+      padding: 8px 12px;
+      background: #fff0f0;
+      border-radius: 6px;
+      display: none;
+    }
+    .error-msg.show { display: block; }
+
+    /* 印刷ガイド */
+    .guide-list { list-style: none; counter-reset: step; }
+    .guide-list li {
+      counter-increment: step;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid #f0f2f5;
+      font-size: 0.85rem;
+      color: #555;
+      line-height: 1.5;
+    }
+    .guide-list li:last-child { border-bottom: none; }
+    .guide-list li::before {
+      content: counter(step);
+      min-width: 22px;
+      height: 22px;
+      background: #0f3460;
+      color: #fff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .tag {
+      display: inline-block;
+      background: #fff3cd;
+      color: #856404;
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>プロキシカード作成ツール</h1>
+    <p>ポケモンカード / ディズニー・ロルカナ 対応</p>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- 設定 -->
+  <div class="card">
+    <h2>印刷設定</h2>
+    <div class="settings-row">
+      <div class="setting-group">
+        <label>用紙サイズ</label>
+        <div class="radio-group" id="paper-group">
+          <div class="radio-btn active" data-value="A3">A3（横・18枚）</div>
+          <div class="radio-btn" data-value="B4">B4（縦・16枚）</div>
+          <div class="radio-btn" data-value="A4">A4（縦・9枚）</div>
+        </div>
+      </div>
+      <div class="setting-group">
+        <label>カードゲーム</label>
+        <div class="radio-group" id="game-group">
+          <div class="radio-btn active" data-value="pokemon">ポケモンカード</div>
+          <div class="radio-btn" data-value="lorcana">ロルカナ</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="info-banner" style="margin-top:14px;" id="info-banner">
+      <span>ℹ️</span>
+      <span id="info-text">A3 横向き：1枚に <strong>18枚</strong>（6×3）配置。カードサイズ 63×88mm</span>
+    </div>
+  </div>
+
+  <!-- カード追加 -->
+  <div class="card">
+    <h2>カードを追加</h2>
+    <div class="add-area">
+      <div class="drop-zone" id="drop-zone">
+        <span>🖼️</span>
+        ファイルをドラッグ&ドロップ、またはクリックして選択
+        <br><small style="color:#aaa;font-size:0.75rem;">JPG・PNG・WebP 対応　複数枚まとめて追加できます</small>
+        <input type="file" id="file-input" accept="image/*" multiple style="display:none;">
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+        <label style="font-size:0.8rem;color:#666;">追加する枚数（同じカードを何枚使うか）：</label>
+        <input type="number" id="file-qty-input" value="1" min="1" max="20" style="width:68px;padding:6px 10px;border:1.5px solid #ddd;border-radius:8px;font-size:0.88rem;text-align:center;">
+      </div>
+    </div>
+    <div class="error-msg" id="error-msg"></div>
+  </div>
+
+  <!-- カードリスト -->
+  <div class="card">
+    <h2 style="justify-content:space-between;">
+      <span>カードリスト</span>
+      <button class="clear-btn" id="clear-btn">すべて削除</button>
+    </h2>
+
+    <div class="summary-bar" id="summary-bar">
+      <span>合計 <strong id="total-count">0</strong> 枚</span>
+      <span class="sheet-count" id="sheet-count">A3 × 0枚</span>
+    </div>
+
+    <div style="height:12px;"></div>
+    <div id="card-list">
+      <div class="empty-msg">まだカードが追加されていません</div>
+    </div>
+
+    <div style="height:20px;"></div>
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <span style="font-size:0.88rem;color:#666;">PDF を生成中...</span>
+    </div>
+    <button class="btn btn-success" id="generate-btn" disabled>
+      PDF を生成してダウンロード
+    </button>
+  </div>
+
+  <!-- 印刷ガイド -->
+  <div class="card">
+    <h2>コンビニ印刷の手順</h2>
+    <ul class="guide-list">
+      <li>PDF を生成してダウンロードする</li>
+      <li>セブンイレブン・ローソン・ファミマ等のネットプリントサービスにアップロード<br>
+        <small>セブン: netprint.jp ／ ローソン・ファミマ: printsmash.jp</small></li>
+      <li>プリンター設定：<span class="tag">カラー</span> <span class="tag">用紙サイズ: A3 または B4</span> <span class="tag">拡大縮小なし（100%）</span></li>
+      <li>印刷後、<strong>トンボ線（角のマーク）</strong>に沿ってカッターまたはハサミで切る</li>
+      <li>スリーブに入れて完成！</li>
+    </ul>
+  </div>
+
+</div>
+
+<script>
+  let cards = [];  // [{ src, displayName, qty }]
+  let paper = 'A3';
+
+  const LAYOUTS = {
+    A3: { cols: 6, rows: 3, label: 'A3 横' },
+    B4: { cols: 4, rows: 4, label: 'B4 縦' },
+    A4: { cols: 3, rows: 3, label: 'A4 縦' },
+  };
+
+  // --- ラジオボタン ---
+  document.querySelectorAll('#paper-group .radio-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#paper-group .radio-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      paper = btn.dataset.value;
+      updateSummary();
+    });
+  });
+  document.querySelectorAll('#game-group .radio-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#game-group .radio-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+
+  function updateInfo() {
+    const lay = LAYOUTS[paper];
+    const perPage = lay.cols * lay.rows;
+    document.getElementById('info-text').innerHTML =
+      `${lay.label}：1枚に <strong>${perPage}枚</strong>（${lay.cols}×${lay.rows}）配置。カードサイズ 63×88mm`;
+  }
+
+  function totalCards() {
+    return cards.reduce((s, c) => s + c.qty, 0);
+  }
+
+  function updateSummary() {
+    const total = totalCards();
+    const lay = LAYOUTS[paper];
+    const perPage = lay.cols * lay.rows;
+    const sheets = total === 0 ? 0 : Math.ceil(total / perPage);
+    document.getElementById('total-count').textContent = total;
+    document.getElementById('sheet-count').textContent =
+      `${paper} × ${sheets}枚`;
+    document.getElementById('generate-btn').disabled = total === 0;
+    updateInfo();
+  }
+
+  function renderList() {
+    const list = document.getElementById('card-list');
+    if (cards.length === 0) {
+      list.innerHTML = '<div class="empty-msg">まだカードが追加されていません</div>';
+      return;
+    }
+    list.innerHTML = cards.map((card, i) => `
+      <div class="card-item">
+        <div class="card-thumb" id="thumb-${i}">
+          <div class="thumb-loading"></div>
+        </div>
+        <span class="card-src">${escHtml(card.displayName)}</span>
+        <div class="qty-control">
+          <button class="qty-btn" onclick="changeQty(${i}, -1)">−</button>
+          <span class="qty-num">${card.qty}</span>
+          <button class="qty-btn" onclick="changeQty(${i}, 1)">＋</button>
+        </div>
+        <button class="remove-btn" onclick="removeCard(${i})" title="削除">✕</button>
+      </div>`
+    ).join('');
+
+    // サムネイルを非同期で読み込む
+    cards.forEach((card, i) => loadThumb(card.src, i));
+    updateSummary();
+  }
+
+  async function loadThumb(src, i) {
+    const container = document.getElementById(`thumb-${i}`);
+    if (!container) return;
+
+    const proxySrc = src.startsWith('http')
+      ? `/proxy-image?url=${encodeURIComponent(src)}`
+      : src;
+
+    try {
+      const resp = await fetch(proxySrc);
+      if (!resp.ok) throw new Error('fetch failed');
+      const blob = await resp.blob();
+      if (!blob.type.startsWith('image/')) throw new Error('not an image');
+      const objectUrl = URL.createObjectURL(blob);
+      if (!document.getElementById(`thumb-${i}`)) return; // 削除済みチェック
+      container.innerHTML = `<img src="${objectUrl}" alt="">`;
+    } catch {
+      if (!document.getElementById(`thumb-${i}`)) return;
+      container.innerHTML = `<span class="thumb-placeholder">🃏</span>`;
+    }
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function changeQty(i, delta) {
+    cards[i].qty = Math.max(1, cards[i].qty + delta);
+    renderList();
+  }
+
+  function removeCard(i) {
+    cards.splice(i, 1);
+    renderList();
+  }
+
+
+  // ファイルアップロード
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    handleFiles(e.dataTransfer.files);
+  });
+  fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+
+  async function handleFiles(files) {
+    const qty = parseInt(document.getElementById('file-qty-input').value) || 1;
+    clearError();
+    for (const file of files) {
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const res = await fetch('/upload', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.error) { showError(data.error); continue; }
+        cards.push({ src: data.src, displayName: file.name, qty });
+      } catch {
+        showError('ファイルのアップロードに失敗しました');
+      }
+    }
+    fileInput.value = '';
+    renderList();
+  }
+
+  // すべて削除
+  document.getElementById('clear-btn').addEventListener('click', () => {
+    if (cards.length === 0) return;
+    if (confirm('すべてのカードを削除しますか？')) {
+      cards = [];
+      renderList();
+    }
+  });
+
+  // PDF生成
+  document.getElementById('generate-btn').addEventListener('click', async () => {
+    if (cards.length === 0) return;
+    const btn = document.getElementById('generate-btn');
+    const loading = document.getElementById('loading');
+    btn.style.display = 'none';
+    loading.classList.add('show');
+    clearError();
+
+    try {
+      const payload = {
+        paper,
+        cards: cards.map(c => ({ src: c.src, qty: c.qty })),
+      };
+      const res = await fetch('/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showError(err.error || 'PDF生成に失敗しました');
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `proxy_${paper}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      showError('通信エラーが発生しました');
+    } finally {
+      loading.classList.remove('show');
+      btn.style.display = '';
+    }
+  });
+
+  function showError(msg) {
+    const el = document.getElementById('error-msg');
+    el.textContent = msg;
+    el.classList.add('show');
+  }
+  function clearError() {
+    const el = document.getElementById('error-msg');
+    el.classList.remove('show');
+  }
+
+  // 初期化
+  updateSummary();
+</script>
+</body>
+</html>
