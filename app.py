@@ -6,12 +6,18 @@ import requests
 from PIL import Image
 from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
 from reportlab.lib.units import mm
-from reportlab.lib.pagesizes import landscape
 from reportlab.pdfgen import canvas
+from supabase import create_client, Client
 
 app = Flask(__name__)
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Supabase設定
+SUPABASE_URL = os.environ.get('SUPABASE_URL', 'https://sjzuuruhegxrzygumljm.supabase.co')
+SUPABASE_KEY = os.environ.get('SUPABASE_KEY', 'sb_publishable_s0OH8Wvol_cr7gi4K77qRA_tsj9ghst')
+BUCKET_NAME = 'proxy-images'
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 CARD_W = 63   # mm
 CARD_H = 88   # mm
@@ -42,9 +48,7 @@ def draw_tombo(c, x, y, card_w, card_h):
     for i, (cx, cy) in enumerate(corners):
         dx_out = -t if i % 2 == 0 else t
         dy_out = t if i < 2 else -t
-        # 横線
         c.line(cx, cy, cx + dx_out, cy)
-        # 縦線
         c.line(cx, cy, cx, cy + dy_out)
 
 
@@ -62,11 +66,6 @@ def fetch_image(src):
 
 
 def generate_pdf(cards, paper):
-    """
-    cards: [{'src': str, 'qty': int}, ...]
-    paper: 'B4' or 'A3'
-    戻り値: PDF のバイト列
-    """
     layout = LAYOUTS[paper]
     pw = mm2pt(layout['w'])
     ph = mm2pt(layout['h'])
@@ -74,20 +73,16 @@ def generate_pdf(cards, paper):
     rows = layout['rows']
     cards_per_page = cols * rows
 
-    # カード間隔 1mm
     gap = mm2pt(1)
     cw = mm2pt(CARD_W)
     ch = mm2pt(CARD_H)
 
-    # グリッド全体の幅・高さ
     grid_w = cols * cw + (cols - 1) * gap
     grid_h = rows * ch + (rows - 1) * gap
 
-    # 左下起点の余白
     margin_x = (pw - grid_w) / 2
     margin_y = (ph - grid_h) / 2
 
-    # カードリストを枚数分展開
     card_list = []
     for card in cards:
         qty = max(1, int(card.get('qty', 1)))
@@ -104,14 +99,13 @@ def generate_pdf(cards, paper):
 
         col = page_idx % cols
         row = page_idx // cols
-        # ReportLab は左下原点
         x = margin_x + col * (cw + gap)
         y = margin_y + (rows - 1 - row) * (ch + gap)
 
         try:
             img = fetch_image(src)
             img_resized = img.resize(
-                (int(cw * 3), int(ch * 3)),  # 3倍で縮小（品質維持）
+                (int(cw * 3), int(ch * 3)),
                 Image.LANCZOS
             )
             with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
@@ -119,7 +113,6 @@ def generate_pdf(cards, paper):
                 c.drawImage(tmp.name, x, y, width=cw, height=ch)
             os.unlink(tmp.name)
         except Exception:
-            # 画像取得失敗時はグレーの枠を描画
             c.setFillColorRGB(0.85, 0.85, 0.85)
             c.rect(x, y, cw, ch, fill=1, stroke=0)
             c.setFillColorRGB(0.4, 0.4, 0.4)
@@ -152,9 +145,28 @@ def upload():
     ext = os.path.splitext(f.filename)[1].lower()
     if ext not in ('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'):
         return jsonify({'error': 'Unsupported format'}), 400
+
     name = f'{uuid.uuid4().hex}{ext}'
-    f.save(os.path.join(UPLOAD_FOLDER, name))
-    return jsonify({'src': f'/uploads/{name}'})
+    file_bytes = f.read()
+
+    # ローカルに保存
+    local_path = os.path.join(UPLOAD_FOLDER, name)
+    with open(local_path, 'wb') as tmp_file:
+        tmp_file.write(file_bytes)
+
+    # Supabase Storageにアップロード
+    try:
+        content_type = f.content_type or 'image/jpeg'
+        supabase.storage.from_(BUCKET_NAME).upload(
+            path=name,
+            file=file_bytes,
+            file_options={'content-type': content_type}
+        )
+        public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(name)
+        return jsonify({'src': public_url})
+    except Exception:
+        # Supabase失敗時はローカルURLにフォールバック
+        return jsonify({'src': f'/uploads/{name}'})
 
 
 @app.route('/uploads/<path:filename>')
@@ -164,7 +176,6 @@ def uploaded_file(filename):
 
 @app.route('/proxy-image')
 def proxy_image():
-    """外部画像をサーバー経由で取得してブラウザに返す（CORS回避）"""
     url = request.args.get('url', '')
     if not url.startswith(('http://', 'https://')):
         return '', 400
@@ -176,6 +187,44 @@ def proxy_image():
     except Exception:
         return '', 502
 
+
+# ─── デッキ API ───────────────────────────────────────────
+
+@app.route('/decks', methods=['GET'])
+def get_decks():
+    try:
+        result = supabase.table('decks').select('*').order('created_at', desc=True).execute()
+        return jsonify(result.data)
+    except Exception as e:
+        return jsonify([])
+
+
+@app.route('/decks', methods=['POST'])
+def save_deck():
+    data = request.get_json()
+    name = data.get('name', '').strip()
+    cards = data.get('cards', [])
+    if not name:
+        return jsonify({'error': 'デッキ名を入力してください'}), 400
+    if not cards:
+        return jsonify({'error': 'カードがありません'}), 400
+    try:
+        result = supabase.table('decks').insert({'name': name, 'cards': cards}).execute()
+        return jsonify(result.data[0])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/decks/<deck_id>', methods=['DELETE'])
+def delete_deck(deck_id):
+    try:
+        supabase.table('decks').delete().eq('id', deck_id).execute()
+        return jsonify({'ok': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ─── PDF生成 ──────────────────────────────────────────────
 
 @app.route('/generate', methods=['POST'])
 def generate():

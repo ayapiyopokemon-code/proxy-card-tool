@@ -368,6 +368,61 @@
       font-size: 0.75rem;
       font-weight: 600;
     }
+
+    /* デッキリスト */
+    .deck-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1.5px solid #eee;
+      border-radius: 10px;
+      background: #fafbfc;
+      margin-bottom: 8px;
+      transition: all 0.1s;
+    }
+    .deck-item:hover { border-color: #ddd; background: #f5f7fa; }
+    .deck-item .deck-name {
+      flex: 1;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #1a1a2e;
+    }
+    .deck-item .deck-meta {
+      font-size: 0.75rem;
+      color: #aaa;
+    }
+    .btn-load {
+      padding: 5px 14px;
+      background: #eef4ff;
+      color: #0f3460;
+      border: 1.5px solid #c5d8ff;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-load:hover { background: #c5d8ff; }
+    .btn-share {
+      padding: 5px 10px;
+      background: #f0fff4;
+      color: #27ae60;
+      border: 1.5px solid #b2dfdb;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .btn-share:hover { background: #b2dfdb; }
+    .btn-del {
+      padding: 5px 10px;
+      background: #fff0f0;
+      color: #c0392b;
+      border: 1.5px solid #f5c6c6;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .btn-del:hover { background: #fde0e0; }
   </style>
 </head>
 <body>
@@ -451,6 +506,26 @@
     <button class="btn btn-success" id="generate-btn" disabled>
       PDF を生成してダウンロード
     </button>
+  </div>
+
+  <!-- デッキ管理 -->
+  <div class="card" id="deck-section">
+    <h2>デッキを保存・読み込む</h2>
+
+    <!-- 保存フォーム -->
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px;">
+      <input type="text" id="deck-name-input" placeholder="デッキ名を入力（例：れんげきウーラオス）"
+        style="flex:1;min-width:200px;padding:9px 13px;border:1.5px solid #ddd;border-radius:8px;font-size:0.88rem;outline:none;">
+      <button class="btn btn-primary" id="save-deck-btn">💾 デッキを保存</button>
+    </div>
+    <div class="error-msg" id="deck-error-msg"></div>
+    <div id="deck-save-success" style="display:none;color:#27ae60;font-size:0.82rem;padding:6px 0;">✅ デッキを保存しました！</div>
+
+    <!-- デッキ一覧 -->
+    <div id="deck-list-area">
+      <div style="font-size:0.8rem;color:#888;margin-bottom:8px;">保存済みデッキ</div>
+      <div id="deck-list"><div class="empty-msg" style="padding:16px;">デッキがまだ保存されていません</div></div>
+    </div>
   </div>
 
   <!-- 印刷ガイド -->
@@ -673,6 +748,143 @@
 
   // 初期化
   updateSummary();
+  loadDecks();
+
+  // URLパラメータからデッキを自動読み込み
+  const urlParams = new URLSearchParams(window.location.search);
+  const deckIdFromUrl = urlParams.get('deck');
+  if (deckIdFromUrl) {
+    loadDeckById(deckIdFromUrl);
+  }
+
+  // ─── デッキ管理 ───────────────────────────────────────
+
+  async function loadDecks() {
+    try {
+      const res = await fetch('/decks');
+      const decks = await res.json();
+      renderDeckList(decks);
+    } catch {
+      renderDeckList([]);
+    }
+  }
+
+  function renderDeckList(decks) {
+    const el = document.getElementById('deck-list');
+    if (!decks || decks.length === 0) {
+      el.innerHTML = '<div class="empty-msg" style="padding:16px;">デッキがまだ保存されていません</div>';
+      return;
+    }
+    el.innerHTML = decks.map(deck => {
+      const date = new Date(deck.created_at).toLocaleDateString('ja-JP');
+      const count = deck.cards.reduce((s, c) => s + (c.qty || 1), 0);
+      return `
+        <div class="deck-item">
+          <div>
+            <div class="deck-name">🃏 ${escHtml(deck.name)}</div>
+            <div class="deck-meta">${count}枚・${date}</div>
+          </div>
+          <button class="btn-load" onclick="loadDeckCards(${JSON.stringify(deck).replace(/"/g, '&quot;')})">読み込む</button>
+          <button class="btn-share" onclick="shareDeck('${deck.id}')" title="URLをコピー">🔗</button>
+          <button class="btn-del" onclick="deleteDeck('${deck.id}')">削除</button>
+        </div>`;
+    }).join('');
+  }
+
+  function loadDeckCards(deck) {
+    if (deck.cards && deck.cards.length > 0) {
+      cards = deck.cards.map(c => ({
+        src: c.src,
+        displayName: c.displayName || c.src.split('/').pop(),
+        qty: c.qty || 1
+      }));
+      renderList();
+      // 用紙サイズも復元
+      if (deck.paper) {
+        paper = deck.paper;
+        document.querySelectorAll('#paper-group .radio-btn').forEach(b => {
+          b.classList.toggle('active', b.dataset.value === paper);
+        });
+      }
+      updateSummary();
+      // カードリストまでスクロール
+      document.getElementById('card-list').scrollIntoView({ behavior: 'smooth' });
+      alert(`「${deck.name}」を読み込みました！`);
+    }
+  }
+
+  async function loadDeckById(id) {
+    try {
+      const res = await fetch('/decks');
+      const decks = await res.json();
+      const deck = decks.find(d => d.id === id);
+      if (deck) loadDeckCards(deck);
+    } catch {}
+  }
+
+  async function deleteDeck(id) {
+    if (!confirm('このデッキを削除しますか？')) return;
+    try {
+      await fetch(`/decks/${id}`, { method: 'DELETE' });
+      loadDecks();
+    } catch {
+      alert('削除に失敗しました');
+    }
+  }
+
+  function shareDeck(id) {
+    const url = `${window.location.origin}/?deck=${id}`;
+    navigator.clipboard.writeText(url).then(() => {
+      alert('URLをコピーしました！\n仲間に送ってください🎉\n\n' + url);
+    }).catch(() => {
+      prompt('このURLをコピーして仲間に送ってください：', url);
+    });
+  }
+
+  // デッキ保存ボタン
+  document.getElementById('save-deck-btn').addEventListener('click', async () => {
+    const name = document.getElementById('deck-name-input').value.trim();
+    const errEl = document.getElementById('deck-error-msg');
+    const successEl = document.getElementById('deck-save-success');
+    errEl.classList.remove('show');
+    successEl.style.display = 'none';
+
+    if (!name) {
+      errEl.textContent = 'デッキ名を入力してください';
+      errEl.classList.add('show');
+      return;
+    }
+    if (cards.length === 0) {
+      errEl.textContent = 'カードを追加してからデッキを保存してください';
+      errEl.classList.add('show');
+      return;
+    }
+
+    try {
+      const res = await fetch('/decks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          cards: cards.map(c => ({ src: c.src, displayName: c.displayName, qty: c.qty })),
+          paper,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        errEl.textContent = err.error || '保存に失敗しました';
+        errEl.classList.add('show');
+        return;
+      }
+      document.getElementById('deck-name-input').value = '';
+      successEl.style.display = 'block';
+      setTimeout(() => { successEl.style.display = 'none'; }, 3000);
+      loadDecks();
+    } catch {
+      errEl.textContent = '通信エラーが発生しました';
+      errEl.classList.add('show');
+    }
+  });
 </script>
 </body>
 </html>
