@@ -423,6 +423,7 @@
       cursor: pointer;
     }
     .btn-del:hover { background: #fde0e0; }
+    .uploading-card { opacity: 0.75; }
   </style>
 </head>
 <body>
@@ -599,11 +600,11 @@
       return;
     }
     list.innerHTML = cards.map((card, i) => `
-      <div class="card-item">
+      <div class="card-item${card.uploading ? ' uploading-card' : ''}">
         <div class="card-thumb" id="thumb-${i}">
           <div class="thumb-loading"></div>
         </div>
-        <span class="card-src">${escHtml(card.displayName)}</span>
+        <span class="card-src">${escHtml(card.displayName)}${card.uploading ? '<br><span style="color:#aaa;font-size:0.7rem;">アップロード中...</span>' : ''}</span>
         <div class="qty-control">
           <button class="qty-btn" onclick="changeQty(${i}, -1)">−</button>
           <span class="qty-num">${card.qty}</span>
@@ -622,6 +623,12 @@
     const container = document.getElementById(`thumb-${i}`);
     if (!container) return;
 
+    // blob: URLはそのまま使える（ローカルプレビュー用）
+    if (src.startsWith('blob:')) {
+      container.innerHTML = `<img src="${escHtml(src)}" alt="">`;
+      return;
+    }
+
     const proxySrc = src.startsWith('http')
       ? `/proxy-image?url=${encodeURIComponent(src)}`
       : src;
@@ -632,7 +639,7 @@
       const blob = await resp.blob();
       if (!blob.type.startsWith('image/')) throw new Error('not an image');
       const objectUrl = URL.createObjectURL(blob);
-      if (!document.getElementById(`thumb-${i}`)) return; // 削除済みチェック
+      if (!document.getElementById(`thumb-${i}`)) return;
       container.innerHTML = `<img src="${objectUrl}" alt="">`;
     } catch {
       if (!document.getElementById(`thumb-${i}`)) return;
@@ -669,23 +676,37 @@
   });
   fileInput.addEventListener('change', () => handleFiles(fileInput.files));
 
-  async function handleFiles(files) {
+  function handleFiles(files) {
     const qty = parseInt(document.getElementById('file-qty-input').value) || 1;
     clearError();
     for (const file of files) {
-      const formData = new FormData();
-      formData.append('file', file);
-      try {
-        const res = await fetch('/upload', { method: 'POST', body: formData });
-        const data = await res.json();
-        if (data.error) { showError(data.error); continue; }
-        cards.push({ src: data.src, displayName: file.name, qty });
-      } catch {
-        showError('ファイルのアップロードに失敗しました');
-      }
+      // 即座にプレビュー表示（ドロップした瞬間にカードが出る）
+      const localUrl = URL.createObjectURL(file);
+      const cardObj = { src: localUrl, displayName: file.name, qty, uploading: true };
+      cards.push(cardObj);
+      renderList();
+      // バックグラウンドでサーバーにアップロード
+      uploadFileInBackground(cardObj, file, localUrl);
     }
     fileInput.value = '';
-    renderList();
+  }
+
+  async function uploadFileInBackground(cardObj, file, localUrl) {
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await fetch('/upload', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.src) {
+        cardObj.src = data.src;
+      }
+    } catch {
+      // アップロード失敗時はローカルURLのまま（PDF生成時にエラーになる）
+      cardObj.uploadFailed = true;
+    } finally {
+      cardObj.uploading = false;
+      renderList();
+    }
   }
 
   // すべて削除
@@ -700,6 +721,10 @@
   // PDF生成
   document.getElementById('generate-btn').addEventListener('click', async () => {
     if (cards.length === 0) return;
+    if (cards.some(c => c.uploading)) {
+      showError('カードのアップロードが完了していません。少々お待ちください...');
+      return;
+    }
     const btn = document.getElementById('generate-btn');
     const loading = document.getElementById('loading');
     btn.style.display = 'none';
@@ -856,6 +881,11 @@
     }
     if (cards.length === 0) {
       errEl.textContent = 'カードを追加してからデッキを保存してください';
+      errEl.classList.add('show');
+      return;
+    }
+    if (cards.some(c => c.uploading)) {
+      errEl.textContent = 'カードのアップロードが完了していません。少々お待ちください...';
       errEl.classList.add('show');
       return;
     }
