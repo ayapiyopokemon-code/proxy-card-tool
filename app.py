@@ -1,8 +1,10 @@
 import io
 import os
+import re
 import uuid
 import tempfile
 import requests
+from bs4 import BeautifulSoup
 from PIL import Image
 from flask import Flask, render_template, request, jsonify, send_file, send_from_directory
 from reportlab.lib.units import mm
@@ -186,6 +188,58 @@ def proxy_image():
         return resp.content, 200, {'Content-Type': content_type}
     except Exception:
         return '', 502
+
+
+# ─── デッキコードインポート ────────────────────────────────
+
+DECK_CODE_PATTERN = re.compile(r'^[a-zA-Z0-9]{6}-[a-zA-Z0-9]{6}-[a-zA-Z0-9]{6}$')
+DECK_PRINT_SKIP = {
+    'ポケモン', 'グッズ', 'ポケモンのどうぐ', 'サポート', 'スタジアム', 'エネルギー',
+    '枚数', 'エキスパンション', 'コレクションNo.', '小計', '合計'
+}
+
+
+@app.route('/import-deck-code', methods=['POST'])
+def import_deck_code():
+    data = request.get_json()
+    code = (data.get('code') or '').strip()
+
+    # URLからデッキコードを抽出（貼り付けがURLの場合も対応）
+    url_match = re.search(r'([a-zA-Z0-9]{6}-[a-zA-Z0-9]{6}-[a-zA-Z0-9]{6})', code)
+    if url_match:
+        code = url_match.group(1)
+
+    if not DECK_CODE_PATTERN.match(code):
+        return jsonify({'error': 'デッキコードの形式が正しくありません（例: 9gngnQ-zAMw9G-96H9nn）'}), 400
+
+    try:
+        url = f'https://www.pokemon-card.com/deck/print.html/deckID/{code}/'
+        resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
+        resp.raise_for_status()
+    except Exception:
+        return jsonify({'error': '公式サイトへの接続に失敗しました'}), 502
+
+    soup = BeautifulSoup(resp.text, 'html.parser')
+    cards = []
+    for table in soup.find_all('table'):
+        for row in table.find_all('tr'):
+            cells = [td.get_text(strip=True) for td in row.find_all('td')]
+            if len(cells) < 2:
+                continue
+            name, qty_str = cells[0], cells[1]
+            if name in DECK_PRINT_SKIP or qty_str in DECK_PRINT_SKIP:
+                continue
+            try:
+                qty = int(qty_str)
+                if name and qty > 0:
+                    cards.append({'name': name, 'qty': qty})
+            except ValueError:
+                pass
+
+    if not cards:
+        return jsonify({'error': 'デッキデータを取得できませんでした。デッキコードを確認してください'}), 404
+
+    return jsonify({'cards': cards, 'code': code})
 
 
 # ─── デッキ API ───────────────────────────────────────────

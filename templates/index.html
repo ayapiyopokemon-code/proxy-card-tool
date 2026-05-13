@@ -509,6 +509,22 @@
     </button>
   </div>
 
+  <!-- デッキコードインポート -->
+  <div class="card">
+    <h2>公式デッキコードから読み込む</h2>
+    <p style="font-size:0.82rem;color:#666;margin-bottom:12px;">
+      ポケモンカードゲーム公式サイト（pokemon-card.com）またはプレイヤーズクラブのデッキコードを貼り付けると、カードリストを自動で読み込みます。<br>
+      <span style="color:#aaa;">※ カード画像は読み込まれません。画像は別途D&amp;Dで追加してください。</span>
+    </p>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <input type="text" id="deck-code-input" placeholder="例：9gngnQ-zAMw9G-96H9nn"
+        style="flex:1;min-width:200px;padding:9px 13px;border:1.5px solid #ddd;border-radius:8px;font-size:0.88rem;outline:none;font-family:monospace;">
+      <button class="btn btn-primary" id="import-deck-code-btn">📋 読み込む</button>
+    </div>
+    <div class="error-msg" id="import-error-msg" style="margin-top:8px;"></div>
+    <div id="import-success-msg" style="display:none;color:#27ae60;font-size:0.82rem;padding:6px 0;margin-top:4px;"></div>
+  </div>
+
   <!-- デッキ管理 -->
   <div class="card" id="deck-section">
     <h2>デッキを保存・読み込む</h2>
@@ -602,9 +618,9 @@
     list.innerHTML = cards.map((card, i) => `
       <div class="card-item${card.uploading ? ' uploading-card' : ''}">
         <div class="card-thumb" id="thumb-${i}">
-          <div class="thumb-loading"></div>
+          ${card.noImage ? '<span class="thumb-placeholder" title="画像未設定">📄</span>' : '<div class="thumb-loading"></div>'}
         </div>
-        <span class="card-src">${escHtml(card.displayName)}${card.uploading ? '<br><span style="color:#aaa;font-size:0.7rem;">アップロード中...</span>' : ''}</span>
+        <span class="card-src">${escHtml(card.displayName)}${card.uploading ? '<br><span style="color:#aaa;font-size:0.7rem;">アップロード中...</span>' : ''}${card.noImage ? '<br><span style="color:#e8a900;font-size:0.7rem;">画像未設定</span>' : ''}</span>
         <div class="qty-control">
           <button class="qty-btn" onclick="changeQty(${i}, -1)">−</button>
           <span class="qty-num">${card.qty}</span>
@@ -614,8 +630,8 @@
       </div>`
     ).join('');
 
-    // サムネイルを非同期で読み込む
-    cards.forEach((card, i) => loadThumb(card.src, i));
+    // サムネイルを非同期で読み込む（画像なしカードはスキップ）
+    cards.forEach((card, i) => { if (!card.noImage) loadThumb(card.src, i); });
     updateSummary();
   }
 
@@ -864,6 +880,62 @@
     }).catch(() => {
       prompt('このURLをコピーして仲間に送ってください：', url);
     });
+  }
+
+  // ─── デッキコードインポート ───────────────────────────────
+  document.getElementById('import-deck-code-btn').addEventListener('click', importDeckCode);
+  document.getElementById('deck-code-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') importDeckCode();
+  });
+
+  async function importDeckCode() {
+    const input = document.getElementById('deck-code-input');
+    const errEl = document.getElementById('import-error-msg');
+    const successEl = document.getElementById('import-success-msg');
+    const btn = document.getElementById('import-deck-code-btn');
+    const code = input.value.trim();
+
+    errEl.classList.remove('show');
+    successEl.style.display = 'none';
+    if (!code) {
+      errEl.textContent = 'デッキコードを入力してください';
+      errEl.classList.add('show');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = '読み込み中...';
+    try {
+      const res = await fetch('/import-deck-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errEl.textContent = data.error || '読み込みに失敗しました';
+        errEl.classList.add('show');
+        return;
+      }
+
+      // カードリストに追加（画像なし・名前のみ）
+      data.cards.forEach(c => {
+        cards.push({ src: '', displayName: c.name, qty: c.qty, noImage: true });
+      });
+      renderList();
+      updateSummary();
+      input.value = '';
+      const total = data.cards.reduce((s, c) => s + c.qty, 0);
+      successEl.textContent = `✅ ${data.cards.length}種類・${total}枚を読み込みました！画像をD&Dで追加してください。`;
+      successEl.style.display = 'block';
+      document.getElementById('card-list').scrollIntoView({ behavior: 'smooth' });
+    } catch {
+      errEl.textContent = '通信エラーが発生しました';
+      errEl.classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '📋 読み込む';
+    }
   }
 
   // デッキ保存ボタン
